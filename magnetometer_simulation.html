@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Magnetometer Calibration</title>
+	<style type="text/css">
+		canvas {
+			position : absolute;
+			left: 0px;
+			top: 0px;
+			z-index: 1;
+		}
+
+		.inputContainer {
+			position: absolute;
+			width: 105px;
+			padding: 0px;
+			background: gray;
+			margin: 5px;
+			padding: 5px;
+			z-index: 2;
+		}
+
+		button {
+			width: 50px;
+		}
+
+		.slider {
+			-webkit-appearance: none;
+			width: 95%;
+			height: 25px;
+			background: #d3d3d3;
+			outline: none;
+			opacity: 0.7;
+			-webkit-transition: .2s;
+		  	transition: opacity .2s;
+		}
+
+		.slider:hover {
+		  	opacity: 1;
+		}
+
+		.slider::-webkit-slider-thumb {
+			-webkit-appearance: none;
+			appearance: none;
+			width: 25px;
+			height: 25px;
+			background: #04AA6D;
+			cursor: pointer;
+		}
+
+		.slider::-moz-range-thumb {
+			width: 25px;
+			height: 25px;
+			background: #04AA6D;
+			cursor: pointer;
+		}
+
+		.infoContainer {
+			position: absolute;
+			width: 115px;
+			padding: 0px;
+			background: gray;
+			padding: 5px;
+			right: 15px;
+			top: 15px;
+			z-index: 3;
+			color: white;
+		}
+	</style>
+</head>
+<body>
+
+	<script src = "three.min.js"></script>
+	<script src = "OrbitControls.js"></script>
+
+	<div class = "inputContainer">
+		<button onmousedown="startRotateZ(true)" onmouseup="stopRotations()">+Z</button>
+		<button onmousedown="startRotateZ(false)" onmouseup="stopRotations()">-Z</button><br>
+		<button onmousedown="startRotateY(true)" onmouseup="stopRotations()">+Y</button>
+		<button onmousedown="startRotateY(false)" onmouseup="stopRotations()">-Y</button><br>
+		<button onmousedown="startRotateX(true)" onmouseup="stopRotations()">+X</button>
+		<button onmousedown="startRotateX(false)" onmouseup="stopRotations()">-X</button><br>
+		<input style = "position: relative; margin-top: 5px; margin-bottom: 5px;" type="range" min="1" max="10" value="5" class="slider" id="speedSlider" onchange="changeSpeed(this)">
+		<div style = "background: black; padding: 5px">
+			<span style = "color: white">Show sea: </span><br><input type="checkbox" onchange = "togglePlaneVisibility(this)">
+		</div>
+		<div style = "background: black; margin-top: 5px; padding: 5px">
+			<span style = "color: white">Show actual vector: </span><br><input type="checkbox" onchange = "toggleActualVector(this)">
+		</div>
+	</div>
+	<div class = "infoContainer">
+		Z-Angle: <span id = "zAngle"></span><br>
+		Y-Angle: <span id = "yAngle"></span><br>
+		X-Angle: <span id = "xAngle"></span><br><br>
+		Z-Val: <span id = "zVal"></span>
+	</div>
+
+	<script type="text/javascript">
+		const scene = new THREE.Scene();
+		const camera = new THREE.PerspectiveCamera( 45, window.innerWidth / window.innerHeight, 1, 10000 );
+		camera.up.set(0,0,1);
+
+		const renderer = new THREE.WebGLRenderer();
+		renderer.setSize( window.innerWidth, window.innerHeight );
+		document.body.appendChild( renderer.domElement );
+
+		const geometry = new THREE.BoxBufferGeometry( 5, 2.5, 1 );
+		const material = new THREE.MeshBasicMaterial( { color: 0x00ff00 } );
+		const boat = new THREE.Mesh( geometry, material );
+		const edges = new THREE.EdgesGeometry( geometry ); 
+		const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial( { color: 0xffffff} ) ); 
+		scene.add( boat );
+		scene.add( line );
+		boat.up.set(0, 0, 1);
+		line.up.set(0, 0, 1);
+
+		const planeGeometry = new THREE.PlaneGeometry( 1000, 1000 );
+		const planeMaterial = new THREE.MeshBasicMaterial( {color: 0xffffff, side: THREE.DoubleSide} );
+		const plane = new THREE.Mesh( planeGeometry, planeMaterial );
+		planeMaterial.transparent = true;
+		planeMaterial.opacity = 0.25;
+		plane.up.set(0, 0, 1);
+
+		const radius = 15;
+		const sphereGeometry = new THREE.SphereGeometry( radius, 32, 16 ); 
+		const sphereMaterial = new THREE.MeshBasicMaterial( { color: 0xffff00, side: THREE.DoubleSide } ); 
+		sphereMaterial.transparent = true;
+		sphereMaterial.opacity = 0.25;
+		const sphere = new THREE.Mesh( sphereGeometry, sphereMaterial ); 
+		scene.add( sphere );
+		sphere.up.set(0, 0, 1);
+
+		const torusGeometry = new THREE.TorusGeometry( 15, 0.1, 16, 100 ); 
+		const torusMaterial = new THREE.MeshBasicMaterial( { color: 0xffffff, wireframe : true, side: THREE.DoubleSide} ); 
+		const torus = new THREE.Mesh( torusGeometry, torusMaterial ); 
+		scene.add( torus );
+		torus.up.set(0, 0, 1);
+		torus.rotateX(0);
+
+		const sphereGeometryPOINT = new THREE.SphereGeometry( 0.5, 32, 16 ); 
+		const sphereMaterialPOINT = new THREE.MeshBasicMaterial( { color: 0x808080, side: THREE.DoubleSide } ); 
+		const spherePOINT = new THREE.Mesh( sphereGeometryPOINT, sphereMaterialPOINT ); 
+		scene.add( spherePOINT );
+		spherePOINT.up.set(0, 0, 1);
+		spherePOINT.position.set(0, radius, 0);
+
+		const sphereGeometryPointMapped = new THREE.SphereGeometry( 0.5, 32, 16 ); 
+		const sphereMaterialPointMapped = new THREE.MeshBasicMaterial( { color: 0xff0000, side: THREE.DoubleSide } ); 
+		const spherePointMapped = new THREE.Mesh( sphereGeometryPointMapped, sphereMaterialPointMapped ); 
+		scene.add( spherePointMapped );
+		spherePointMapped.up.set(0, 0, 1);
+		spherePointMapped.position.set(0, radius, 0);
+
+		const axesHelper = new THREE.AxesHelper( radius * 2 );
+		scene.add( axesHelper );
+		axesHelper.up.set(0, 0, 1);
+
+		const boatAxes = new THREE.AxesHelper( 1 );
+		boatAxes.up.set(0, 0, 1);
+
+		const controls = new THREE.OrbitControls( camera, renderer.domElement );
+		//controls.update() must be called after any manual changes to the camera's transform
+		camera.position.set( radius * 2, radius * 2, radius * 2);
+		controls.update();
+		controls.enabled = true;
+
+		var rotateZ = 0;
+		var rotateY = 0;
+		var rotateX = 0;
+		function stopRotations(){
+			rotateZ = 0;
+			rotateY = 0;
+			rotateX = 0;
+		}
+
+		function startRotateZ(dir){
+			rotateZ = dir ? 2 : 1; 
+		}
+		function startRotateY(dir){
+			rotateY = dir ? 2 : 1; 
+		}
+		function startRotateX(dir){
+			rotateX = dir ? 2 : 1; 
+		}
+
+		var angularSpeed = 0.05; // radians per frame
+		function changeSpeed(speedSlider){
+			var speed = speedSlider.value / 100;
+			angularSpeed = speed;
+		}
+
+		function togglePlaneVisibility(checkBox){
+			if(checkBox.checked){
+				scene.add(plane);
+			} else {
+				scene.remove(plane);
+			}
+		}
+
+		var showActualVector = false;
+		function toggleActualVector(checkBox){
+			if(checkBox.checked){
+				showActualVector = true;
+			} else {
+				showActualVector = false;
+			}
+		}
+
+		const northDir = new THREE.Vector3( 1, 1, 1 );
+		//normalize the direction vector (convert to vector of length 1)
+		northDir.normalize();
+		const northOrigin = new THREE.Vector3( 0, 0, 0 );
+		const northLength = radius;
+		const northHex = 0xffffff;
+		const northArrow = new THREE.ArrowHelper( northDir, northOrigin, northLength, northHex );
+		scene.add( northArrow );
+		northArrow.up.set(0, 0, 1);
+
+		var zDir = new THREE.Vector3(0, 0, 1 );
+		//normalize the direction vector (convert to vector of length 1)
+		zDir.normalize();
+		const zOrigin = new THREE.Vector3( 0, 0, 0 );
+		const zLength = radius;
+		const zHex = 0x2476b5;
+		const zArrow = new THREE.ArrowHelper( zDir, zOrigin, zLength, zHex );
+		scene.add( zArrow );
+		zArrow.up.set(0, 0, 1);
+
+		var yDir = new THREE.Vector3(0, 1, 0 );
+		//normalize the direction vector (convert to vector of length 1)
+		yDir.normalize();
+		const yOrigin = new THREE.Vector3( 0, 0, 0 );
+		const yLength = radius;
+		const yHex = 0x00ff00;
+		const yArrow = new THREE.ArrowHelper( yDir, yOrigin, yLength, yHex );
+		scene.add( yArrow );
+		yArrow.up.set(0, 0, 1);
+
+		var xDir = new THREE.Vector3(-1, 0, 0 );
+		//normalize the direction vector (convert to vector of length 1)
+		xDir.normalize();
+		const xOrigin = new THREE.Vector3( 0, 0, 0 );
+		const xLength = radius;
+		const xHex = 0xff0000;
+		const xArrow = new THREE.ArrowHelper( xDir, xOrigin, xLength, xHex );
+		scene.add( xArrow );
+		xArrow.up.set(0, 0, 1);
+
+		var angleGeometry = new THREE.CircleGeometry( 5, 32 ); 
+		var angleMaterial = new THREE.MeshBasicMaterial( { color: 0xffff00 } ); 
+		var angleCircle = new THREE.Mesh( angleGeometry, angleMaterial ); 
+		scene.add( angleCircle );
+		angleCircle.up.set(0, 0, 1);
+
+		// These angles are with respect to their plane, so zAngle rotation is with respect to z-plane
+		var zAngle = 0;
+		var yAngle = 0;
+		var xAngle = 0;
+		function animate() {
+			requestAnimationFrame( animate );
+
+			if(zAngle > Math.PI){
+				zAngle = -1 * (2 * Math.PI - zAngle)
+			} else if(zAngle < -Math.PI){
+				zAngle = (2 * Math.PI + zAngle)
+			}
+			if(yAngle > Math.PI){
+				yAngle = -1 * (2 * Math.PI - yAngle)
+			} else if(yAngle < -Math.PI){
+				yAngle = (2 * Math.PI + yAngle)
+			}
+			if(xAngle > Math.PI){
+				xAngle = -1 * (2 * Math.PI - xAngle)
+			} else if(xAngle < -Math.PI){
+				xAngle = (2 * Math.PI + xAngle)
+			}
+
+			document.getElementById("zAngle").innerHTML = zAngle.toFixed(2).toString() + " \u00B0";
+			document.getElementById("yAngle").innerHTML = yAngle.toFixed(2).toString() + " \u00B0";
+			document.getElementById("xAngle").innerHTML = xAngle.toFixed(2).toString() + " \u00B0";
+
+			zDir = new THREE.Vector3(0, 0, 1).applyQuaternion(boat.quaternion);
+			zArrow.setDirection(zDir);
+			var zDirAngle = zDir.angleTo(northDir);
+			var zVal = Math.cos(zDirAngle);
+			if(zVal < 0 && showActualVector){
+				zDir.negate();
+				zArrow.setDirection(zDir);
+			}
+			zArrow.setLength(radius * Math.abs(zVal));
+
+			yDir = new THREE.Vector3(0, 1, 0).applyQuaternion(boat.quaternion);
+			yArrow.setDirection(yDir);
+			var yDirAngle = yDir.angleTo(northDir);
+			var yVal = Math.cos(yDirAngle);
+			if(yVal < 0 && showActualVector){
+				yDir.negate();
+				yArrow.setDirection(yDir);
+			}
+			yArrow.setLength(radius * Math.abs(yVal));
+
+			xDir = new THREE.Vector3(1, 0, 0).applyQuaternion(boat.quaternion);
+			xArrow.setDirection(xDir);
+			var xDirAngle = xDir.angleTo(northDir);
+			var xVal = Math.cos(xDirAngle);
+			if(xVal < 0 && showActualVector){
+				xDir.negate();
+				xArrow.setDirection(xDir);
+			}
+			xArrow.setLength(radius * Math.abs(xVal));
+
+			// Point
+			spherePOINT.position.set(radius * -xVal, radius * yVal, radius * -zVal);
+
+			// show angle
+			var startAngle = Math.PI / 2;
+			var yVector = new THREE.Vector2(yDir.x, yDir.y);
+			var angleY = 0;
+			if(yVector.angle() >= 0 && yVector.angle() < Math.PI / 2){
+				angleY = 3 / 2 * Math.PI + yVector.angle();
+			} else {
+				angleY = yVector.angle() - Math.PI / 2;
+			}
+
+			// Map the x axis end to the xy plane
+			spherePointMapped.position.x = radius * Math.cos(yVector.angle());
+			spherePointMapped.position.y = radius * Math.sin(yVector.angle());
+
+			scene.remove(angleCircle);
+			var angleGeometryNew = new THREE.CircleGeometry( 5, 32, startAngle, angleY ); 
+			var angleMaterialNew = new THREE.MeshBasicMaterial( { color: 0x013220 } ); 
+			angleCircle = new THREE.Mesh( angleGeometryNew, angleMaterialNew ); 
+			scene.add( angleCircle );
+			angleCircle.up.set(0, 0, 1);
+			
+			document.getElementById("zVal").innerHTML = yVal.toFixed(2);
+
+			if(rotateZ > 0){
+				boat.rotateZ(rotateZ == 1 ? -angularSpeed : angularSpeed);
+				line.rotateZ(rotateZ == 1 ? -angularSpeed : angularSpeed);
+				boatAxes.rotateZ(rotateZ == 1 ? -angularSpeed : angularSpeed);
+				zAngle += rotateZ == 1 ? -angularSpeed : angularSpeed;
+			}
+			if(rotateY > 0){
+				boat.rotateY(rotateY == 1 ? -angularSpeed : angularSpeed);
+				line.rotateY(rotateY == 1 ? -angularSpeed : angularSpeed);
+				boatAxes.rotateY(rotateY == 1 ? -angularSpeed : angularSpeed);
+				yAngle += rotateY == 1 ? -angularSpeed : angularSpeed;
+			}
+			if(rotateX > 0){
+				boat.rotateX(rotateX == 1 ? -angularSpeed : angularSpeed);
+				line.rotateX(rotateX == 1 ? -angularSpeed : angularSpeed);
+				boatAxes.rotateX(rotateX == 1 ? -angularSpeed : angularSpeed);
+				xAngle += rotateX == 1 ? -angularSpeed : angularSpeed;
+			}
+
+			renderer.render( scene, camera );
+		}
+
+		animate();
+	</script>
+</body>
+</html>
+
+
+
+
+
+
